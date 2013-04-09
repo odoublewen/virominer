@@ -7,6 +7,7 @@ use Getopt::Long;
 use Benchmark;
 use POSIX qw(strftime);
 
+
 my ( @s1, @q1, @s2, @q2, $file1, $file2, $basename, @basenames, $paired, $CMD, $counter,$rounded, $REDO, $outfile, @METAS, @FILTERS, $ADAPTERS, @BLAST) ;
 my %filterhash;
 my $OUTDIR = "virominer_out";
