@@ -228,7 +228,7 @@ for $file1 ( @ARGV ) {
     print " STAGE 4: Trinity Assembly\n";
     $TimeStageStart = new Benchmark;
     $counts{trinity} = seqs2fasta(">$OUTDIR/$basename\_trinityIN.fa");
-    $outfile = "$OUTDIR/$basename\_trinity/Trinity.fasta";
+    $outfile = "$OUTDIR/$basename\_trinity.Trinity.fasta";
     $CMD = "Trinity.pl --output $OUTDIR/$basename\_trinity --full_cleanup --min_contig_length 500 --seqType fa --JM 50G --single $OUTDIR/$basename\_trinityIN.fa --CPU $THREADS --inchworm_cpu $THREADS --bflyCalculateCPU";  ## --SS_lib_type RF
     if ($paired) { $CMD .= " --run_as_paired" }
     print "  CMD: $CMD\n";
@@ -252,7 +252,7 @@ for $file1 ( @ARGV ) {
 
 	$outfile = "$OUTDIR/$basename\_darkmatter_$blaststage.txt";
 
-	$CMD = "$seqEmitter $OUTDIR/$basename\_trinity/Trinity.fasta | parallel --block 2k --recstart '>' --pipe -j $THREADS \"$blaststage -db $blastdb $blastOptions -outfmt '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore ppos' -max_target_seqs 5 -query -\" > $outfile";
+	$CMD = "$seqEmitter $OUTDIR/$basename\_trinity.Trinity.fasta | parallel --block 2k --recstart '>' --pipe -j $THREADS \"$blaststage -db $blastdb $blastOptions -outfmt '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore ppos' -max_target_seqs 5 -query -\" > $outfile";
 	print "  CMD: $CMD\n";
 	if ($REDO and -s "$outfile") { print "  Skipping BLAST search because file $outfile exists\n"}
 	else { system $CMD } 
@@ -295,7 +295,7 @@ for $file1 ( @ARGV ) {
     ### ... AND FINALLY ADD ANNOTATIONS TO TRINITY CONTIGS
     $TimeStageStart = new Benchmark;
     
-    open FASTA, "$OUTDIR/$basename\_trinity/Trinity.fasta" ;
+    open FASTA, "$OUTDIR/$basename\_trinity.Trinity.fasta" ;
     open FASTA2, "> $OUTDIR/$basename\_Trinity_annotated.fasta" ;
     while (<FASTA>) {
 	chomp;
