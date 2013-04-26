@@ -5,6 +5,7 @@ use Cwd;
 use File::Basename;
 use Getopt::Long;
 use Benchmark;
+use Data::Dumper;
 use POSIX qw(strftime);
 
 
@@ -27,10 +28,18 @@ my ($TimeSampleStart, $TimeStageStart, $TimeStageEnd);
 
 sub seqs2table {
     my $out = shift;
+    my $all = shift;
     open OUT, "$out";
     my $i;
-    if ($paired) { for ($i = 0; $i < scalar @s1; $i++) { unless (exists $filterhash{$i}) {print OUT "$i\t$s1[$i]\t$q1[$i]\t$s2[$i]\t$q2[$i]\n";} } }
-    else         { for ($i = 0; $i < scalar @s1; $i++) { unless (exists $filterhash{$i}) {print OUT "$i\t$s1[$i]\t$q1[$i]\n";} } }
+    if ($all) {
+	if ($paired) { for ($i = 0; $i < scalar @s1; $i++) { print OUT "$i\t$s1[$i]\t$q1[$i]\t$s2[$i]\t$q2[$i]\n";} }
+	else         { for ($i = 0; $i < scalar @s1; $i++) { print OUT "$i\t$s1[$i]\t$q1[$i]\n";} }
+    }
+    else {
+	if ($paired) { for ($i = 0; $i < scalar @s1; $i++) { unless (exists $filterhash{$i}) {print OUT "$i\t$s1[$i]\t$q1[$i]\t$s2[$i]\t$q2[$i]\n";} } }
+	else         { for ($i = 0; $i < scalar @s1; $i++) { unless (exists $filterhash{$i}) {print OUT "$i\t$s1[$i]\t$q1[$i]\n";} } }
+    }
+
     close OUT;
 }
 
@@ -154,7 +163,7 @@ for $file1 ( @ARGV ) {
 	    $CMD = "| bowtie2 --sensitive-local -p $THREADS --12 - -x $INDEX_PATH$index | samtools view -S -F 4 - | cut -f 1 > $outfile" ;
 	    if ($REDO and -s "$outfile") { print "  Skipping bowtie2 filter because file $outfile exists\n"}
 	    else {
-		seqs2table($CMD);
+		seqs2table($CMD, 0);
 	    }
 	    open HITS, "$OUTDIR/$basename\_filter\_$index.txt";
 	    $counts{$index} = 0;
@@ -178,11 +187,13 @@ for $file1 ( @ARGV ) {
 	print " STAGE 3: Metagenomics filter\n";
 	$TimeStageStart = new Benchmark;
 	for my $index ( @METAS ) {
+	    my $all = 0;
+	    if ($index eq $METAS[-1]) { $all = 1 }
 	    $outfile = "$OUTDIR/$basename\_metagenomics_$index.txt";
 	    $CMD = "| bowtie2 -p $THREADS --12 - -x $INDEX_PATH$index | samtools view -S -F 4 - | cut -f 1,3 > $outfile";
 	    if ($REDO and -s "$outfile") { print "  Skipping bowtie2 metegenomics because file $outfile exists\n"}
 	    else {
-		seqs2table($CMD);
+		seqs2table($CMD, $all);
 	    }
 	    if (exists $TRINITY{$index}) {
 		open HITS, "$OUTDIR/$basename\_metagenomics\_$index.txt";
@@ -190,6 +201,7 @@ for $file1 ( @ARGV ) {
 		while (<HITS>) { 
 		    chomp; 
 		    my @line = split "\t"; 
+		    if (exists $filterhash{$line[0]}) { delete $filterhash{$line[0]} } # this puts viral hits back in to trinity output
 		    $counts{$index} ++ ;
 		}
 		close HITS;
