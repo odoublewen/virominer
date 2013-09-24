@@ -281,6 +281,7 @@ for $file1 ( @ARGV ) {
 	    $blasthit{$line[0]}{pident} = $line[2];
 	    $blasthit{$line[0]}{length} = $line[3];
 	    $blasthit{$line[0]}{ppos} = $line[12];
+	    $blasthit{$line[0]}{plus} = ( ($line[7]-$line[6]) * ($line[9]-$line[8]) ) > 0 ;
 	    print TOPHITS "$line[1]\n";
 	}
 	close TOPHITS;
@@ -312,7 +313,11 @@ for $file1 ( @ARGV ) {
     while (<FASTA>) {
 	chomp;
 	if ( m/>(.+) len=(\d+) path=.+/ ) {
-	    if (exists $blasthit{$1}) { print FASTA2 ">$1 $2bp tophit: $blasthit{$1}{accession} alength=$blasthit{$1}{length} pident=$blasthit{$1}{pident} ppos=$blasthit{$1}{ppos} $annot{$blasthit{$1}{accession}}\n" }
+	    if (exists $blasthit{$1}) { 
+		print FASTA2 ">$1 $2bp tophit: $blasthit{$1}{accession} alength=$blasthit{$1}{length} pident=$blasthit{$1}{pident} ppos=$blasthit{$1}{ppos} $annot{$blasthit{$1}{accession}}" ;
+		if (! $blasthit{$1}{plus} ) { print FASTA2 " RC" }
+		print FASTA2 "\n";
+	    }
 	    else { print FASTA2 ">$1 $2bp no blast hits\n" }
 	}
 	else { print FASTA2 "$_\n" }
