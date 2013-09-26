@@ -26,34 +26,6 @@ my $BLASTXDB = 'nr';
 my $call = "$0 @ARGV";
 my ($TimeSampleStart, $TimeStageStart, $TimeStageEnd);
 
-sub seqs2table {
-    my $out = shift;
-    my $all = shift;
-    open OUT, "$out";
-    my $i;
-    if ($all) {
-	if ($paired) { for ($i = 0; $i < scalar @s1; $i++) { print OUT "$i\t$s1[$i]\t$q1[$i]\t$s2[$i]\t$q2[$i]\n";} }
-	else         { for ($i = 0; $i < scalar @s1; $i++) { print OUT "$i\t$s1[$i]\t$q1[$i]\n";} }
-    }
-    else {
-	if ($paired) { for ($i = 0; $i < scalar @s1; $i++) { unless (exists $filterhash{$i}) {print OUT "$i\t$s1[$i]\t$q1[$i]\t$s2[$i]\t$q2[$i]\n";} } }
-	else         { for ($i = 0; $i < scalar @s1; $i++) { unless (exists $filterhash{$i}) {print OUT "$i\t$s1[$i]\t$q1[$i]\n";} } }
-    }
-
-    close OUT;
-}
-
-sub seqs2fasta {
-    my $out = shift;
-    my $counter = 0;
-    open OUT, "$out";
-    my $i;
-    if ($paired) { for ($i = 0; $i < scalar @s1; $i++) { unless (exists $filterhash{$i}) {print OUT ">$i/1\n$s1[$i]\n>$i/2\n$s2[$i]\n"; $counter ++ ; } } }
-    else         { for ($i = 0; $i < scalar @s1; $i++) { unless (exists $filterhash{$i}) {print OUT ">$i\n$s1[$i]\n"; $counter ++ ; } } }
-    close OUT;
-    return $counter;
-}
-
 GetOptions (
 	    "redo" => \$REDO,
 	    "out=s" => \$OUTDIR,
@@ -93,7 +65,7 @@ for $file1 ( @ARGV ) {
     %filterhash = ();
     $counter ++ ;
     $TimeSampleStart = new Benchmark;
-
+    
     print "# # # # # # # # # # # # # # # # # # # # # # # # # # # # #\n";
     print "BEGINNING WORK ON FILE $file1 ($counter of " . scalar @ARGV . ")\n"; 
     if ( -s $file1 ) { print "Found file $file1"; }
@@ -101,53 +73,46 @@ for $file1 ( @ARGV ) {
     $file2 = $file1 ;
     if ($file2 =~ s/_1\.fq/_2.fq/ and -s $file2 ) { $paired = 1; print " - Found file $file2 - running in paired end mode\n"; }
     else                                          { $paired = 0; print " - running in single end mode\n"; $file2 = ''; }
-
+    
     $basename = $file1 ;
     if ($paired) {$basename =~ s/(.*\/)*(.*?)_1.fq(\.gz)*/$2/ }
     else         {$basename =~ s/(.*\/)*(.*?).fq(\.gz)*/$2/ }
     push @basenames, $basename;
-
+    
     #### SEQUENCE CLEANUP AND FORMATTING
     print " STAGE 1: Sequence QC and formatting\n";
     $TimeStageStart = new Benchmark;
     (@s1, @q1, @s2, @q2) = () ;
-    my $cutadaptstring;
-    my $cutadaptoptions = "-q 25 -e 0 -O 8 -N";
-    if ($ADAPTERS) {
-	open PRIMERS, "$ADAPTERS";
-	while (my $primer = <PRIMERS>) {
-	    chomp $primer ;
-	    $primer =~ s/.*\t(\w+)/$1/ ;
-	    $primer = uc $primer;
-	    $cutadaptstring .= "-b $primer ";
-	    $primer =~ tr/ATGC/TACG/ ;
-	    $primer = reverse $primer ;
-	    $cutadaptstring .= "-b $primer ";
-	}
-	close PRIMERS;
-	open IN, "cutadapt $cutadaptstring $cutadaptoptions --info-file $basename\_cutadapt_1.txt $file1 |" ;
-    }
-    elsif ($file1 =~ m/\.gz$/) {open IN, '-|', 'zcat', $file1 }
-    else                       {open IN, $file1 }
-
+    my %ngs;
+    
+    print "  Reading file $file1\n";
+    if ($file1 =~ m/\.gz$/) {open IN, '-|', 'zcat', $file1 }
+    else                    {open IN, $file1 }
+    my ($header, $seq);
     while ( <IN> ) {
-	if    ($. % 4 == 0) { chomp ; push @q1, $_ ; $filterhash{scalar(@q1)-1} = 1 if (length($_) < 25) ;}
-	elsif ($. % 2 == 0) { chomp ; push @s1, $_ ;}
+	if    ($. % 4 == 1) { chomp ; $_ =~ m/@(\w+).*/ ; $header = $1 ; }
+	elsif ($. % 4 == 2) { chomp ; $seq = $_ ;}
+	elsif ($. % 4 == 0) { chomp ; $ngs{$header} = "$seq\t$_";}
     }
     close IN;
-
+    
     if ($paired) {
-	if ($ADAPTERS) { open IN, "cutadapt $cutadaptstring $cutadaptoptions --info-file $basename\_cutadapt_2.txt $file2 |" }
-	elsif ($file2 =~ m/\.gz$/) {open IN, '-|', 'zcat', $file2 }
+	print "  Reading file $file2\n";
+	if ($file2 =~ m/\.gz$/) {open IN, '-|', 'zcat', $file2 }
 	else                    {open IN, $file2 }
 	while ( <IN> ) {
-	    if    ($. % 4 == 0) { chomp ; push @q2, $_ ; $filterhash{scalar(@q2)-1} = 1 if (length($_) < 25) ;}
-	    elsif ($. % 2 == 0) { chomp ; push @s2, $_ ;}
+	    if    ($. % 4 == 1) { chomp ; $_ =~ m/@(\w+).*/ ; $header = $1 ; }
+	    elsif ($. % 4 == 2) { chomp ; $seq = $_ ;}
+	    elsif ($. % 4 == 0) { 
+		chomp ; 
+		if (exists $ngs{$header}) { $ngs{$header} .= "\t$seq\t$_"; }
+		else                      { $ngs{$header} = "$seq\t$_"; }
+	    }
 	}
 	close IN;
     }
 
-    $counts{initial} = scalar @s1;
+    $counts{initial} = scalar keys %ngs;
 
     $TimeStageEnd = new Benchmark;
     print TIME "Sample $basename\tInitialSeqs $counts{initial}\tStage 1 (INPUT)\t", strftime("%a, %d %b %Y %H:%M:%S %z", localtime(time())), "\n";
@@ -163,7 +128,11 @@ for $file1 ( @ARGV ) {
 	    $CMD = "| bowtie2 --sensitive-local -p $THREADS --12 - -x $INDEX_PATH$index | samtools view -S -F 4 - | cut -f 1 > $outfile" ;
 	    if ($REDO and -s "$outfile") { print "  Skipping bowtie2 filter because file $outfile exists\n"}
 	    else {
-		seqs2table($CMD, 0);
+		open OUT, $CMD ;
+		foreach my $header (keys %ngs) { 
+		    unless (exists $filterhash{$header}) { print OUT "$header\t$ngs{$header}\n"; } 
+		}
+		close OUT ;
 	    }
 	    open HITS, "$OUTDIR/$basename\_filter\_$index.txt";
 	    $counts{$index} = 0;
@@ -193,7 +162,11 @@ for $file1 ( @ARGV ) {
 	    $CMD = "| bowtie2 -p $THREADS --12 - -x $INDEX_PATH$index | samtools view -S -F 4 - | cut -f 1,3 > $outfile";
 	    if ($REDO and -s "$outfile") { print "  Skipping bowtie2 metegenomics because file $outfile exists\n"}
 	    else {
-		seqs2table($CMD, $all);
+		open OUT, $CMD ;
+		foreach my $header (keys %ngs) { 
+		    unless (exists $filterhash{$header} and $all == 0) { print OUT "$header\t$ngs{$header}\n"; } 
+		}
+		close OUT ;
 	    }
 	    if (exists $TRINITY{$index}) {
 		open HITS, "$OUTDIR/$basename\_metagenomics\_$index.txt";
@@ -239,19 +212,34 @@ for $file1 ( @ARGV ) {
     ##### TRINITY ASSEMBLIES
     print " STAGE 4: Trinity Assembly\n";
     $TimeStageStart = new Benchmark;
-    $counts{trinity} = seqs2fasta(">$OUTDIR/$basename\_trinityIN.fa");
-    $outfile = "$OUTDIR/$basename\_trinity.Trinity.fasta";
+
+
+#    $counts{trinity} = seqs2fasta(">$OUTDIR/$basename\_trinityIN.fa");
+
+    open OUT, ">$OUTDIR/$basename\_trinityIN.fa" ;
+    foreach my $header (keys %ngs) { 
+	unless (exists $filterhash{$header}) {
+	    my @seqs = split "\t", $ngs{$header} ;
+	    my $numseqs = (scalar @seqs) / 2 ;
+	    for (0.. ($numseqs - 1)) {
+		printf OUT ">$header\\%d\n$seqs[$_*2]\n" , $_ + 1;
+	    } 
+	}
+    }
+    close OUT ;
+
+    my $trinity_outfile = "$OUTDIR/$basename\_trinity.Trinity.fasta";
     $CMD = "Trinity.pl --output $OUTDIR/$basename\_trinity --full_cleanup --min_contig_length 500 --seqType fa --JM 50G --single $OUTDIR/$basename\_trinityIN.fa --CPU $THREADS --inchworm_cpu $THREADS --bflyCalculateCPU";  ## --SS_lib_type RF
     if ($paired) { $CMD .= " --run_as_paired" }
     print "  CMD: $CMD\n";
-    if ($REDO and -s "$outfile") { print "  Skipping Trinity assembly because file $outfile exists\n"}
+    if ($REDO and -s "$trinity_outfile") { print "  Skipping Trinity assembly because file $trinity_outfile exists\n"}
     else {system $CMD}
     $TimeStageEnd = new Benchmark;
     print TIME "Sample $basename\tTrinitySeqs $counts{trinity}\tStage 4 (TRINITY)\t", timestr(timediff($TimeStageEnd, $TimeStageStart), 'all'), "\n";
 
     #### BLAST TRINITY ASSEMBLIES
     my $blastcounter = 1;
-    my ( %blasthit, %annot ) ;
+    my ( @blastoutfiles ) ;
     foreach my $blaststage ( @BLAST ) {
 	print " STAGE 5: BLAST of Trinity Contigs (blast program: $blaststage )\n";
 	$TimeStageStart = new Benchmark;
@@ -260,70 +248,24 @@ for $file1 ( @ARGV ) {
 	else                            { $blastdb = $BLAST_PATH . $BLASTXDB; $blastOptions = "-evalue 10" }
 	my $seqEmitter;
 	if ($blastcounter == 1) { $seqEmitter = "cat" }
-	else                    { $seqEmitter = "$BIN_PATH/fastaFilter.pl $outfile" }
+	else                    { $seqEmitter = "$BIN_PATH/fastaFilter.pl" }
 
-	$outfile = "$OUTDIR/$basename\_darkmatter_$blaststage.txt";
+	$outfile = "$OUTDIR/$basename\_darkmatter_$blaststage.$blastdb";
+	push @blastoutfiles, $outfile ;
 
 	$CMD = "$seqEmitter $OUTDIR/$basename\_trinity.Trinity.fasta | parallel --block 2k --recstart '>' --pipe -j $THREADS \"$blaststage -db $blastdb $blastOptions -outfmt '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore ppos' -max_target_seqs 5 -query -\" > $outfile";
 	print "  CMD: $CMD\n";
 	if ($REDO and -s "$outfile") { print "  Skipping BLAST search because file $outfile exists\n"}
 	else { system $CMD } 
 
-	## FOR EACH BLAST ALIGNMENT, EXTRACT ACCESSION NUMBER OF TOP (ie, FIRST) HIT, SEND TO FILE...
-	open BLAST, "$outfile";
-	open TOPHITS, "> $OUTDIR/$basename\_darkmatter_$blaststage\_tophitaccessions.txt";
-	while (<BLAST>) {
-	    chomp;
-	    my @line = split "\t";
-	    if (exists $blasthit{$line[0]}) {next}
-	    my @idstring = split /\|/, $line[1] ;
-	    $blasthit{$line[0]}{accession} = $idstring[3];
-	    $blasthit{$line[0]}{pident} = $line[2];
-	    $blasthit{$line[0]}{length} = $line[3];
-	    $blasthit{$line[0]}{ppos} = $line[12];
-	    $blasthit{$line[0]}{plus} = ( ($line[7]-$line[6]) * ($line[9]-$line[8]) ) > 0 ;
-	    print TOPHITS "$line[1]\n";
-	}
-	close TOPHITS;
-	close BLAST;
-
-	#### ... THEN MAKE ANNOTATION DUMP FILE AND READ IT IN...
-	$CMD = "blastdbcmd -db $blastdb -outfmt '%a %t (%l)' -entry_batch $OUTDIR/$basename\_darkmatter_$blaststage\_tophitaccessions.txt > $OUTDIR/$basename\_darkmatter_$blaststage\_annotations.txt";
-	system $CMD;
-
-	open ANNOT, "$OUTDIR/$basename\_darkmatter_$blaststage\_annotations.txt";
-	while (<ANNOT>) {
-	    chomp;
-	    m/(\S+) (.+)/ ;
-	    $annot{$1} = $2;
-	}
-	close ANNOT;
-
-	$TimeStageEnd = new Benchmark;
-	print TIME "Sample $basename\t\tStage 5 BLAST ($blaststage)\t", timestr(timediff($TimeStageEnd, $TimeStageStart), 'all'), "\n";
-
-	$blastcounter ++ ;
     }
 
-    ### ... AND FINALLY ADD ANNOTATIONS TO TRINITY CONTIGS
+    ### ANNOTATIONS
     $TimeStageStart = new Benchmark;
-    
-    open FASTA, "$OUTDIR/$basename\_trinity.Trinity.fasta" ;
-    open FASTA2, "> $OUTDIR/$basename\_Trinity_annotated.fasta" ;
-    while (<FASTA>) {
-	chomp;
-	if ( m/>(.+) len=(\d+) path=.+/ ) {
-	    if (exists $blasthit{$1}) { 
-		print FASTA2 ">$1 $2bp tophit: $blasthit{$1}{accession} alength=$blasthit{$1}{length} pident=$blasthit{$1}{pident} ppos=$blasthit{$1}{ppos} $annot{$blasthit{$1}{accession}}" ;
-		if (! $blasthit{$1}{plus} ) { print FASTA2 " RC" }
-		print FASTA2 "\n";
-	    }
-	    else { print FASTA2 ">$1 $2bp no blast hits\n" }
-	}
-	else { print FASTA2 "$_\n" }
-    }
-    close FASTA;
-    close FASTA2;
+
+    $CMD = "$BIN_PATH/annotateFastaFromBLAST.pl -fasta $trinity_outfile  -out $OUTDIR/$basename @blastoutfiles";
+    print "  CMD: $CMD\n";
+    system $CMD;
 
     $CMD = "fastaLengths.pl $OUTDIR/$basename\_Trinity_annotated.fasta > $OUTDIR/$basename\_Trinity_lengths.txt";
     print "  CMD: $CMD\n";
