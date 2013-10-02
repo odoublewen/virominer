@@ -3,17 +3,30 @@ use strict;
 use warnings;
 use Getopt::Long;
 
-my ($fastafile, $outfile) ;
+my ($fastafile, $outfile, $verbose) ;
 
 GetOptions ("out=s" => \$outfile , 
-	    "fasta=s" => \$fastafile );
+	    "fasta=s" => \$fastafile ,
+	    "verbose" => \$verbose
+);
+
+sub rev_complement_IUPAC {
+        my $dna = shift;
+
+	# reverse the DNA sequence
+        my $revcomp = reverse($dna);
+
+	# complement the reversed DNA sequence
+        $revcomp =~ tr/ABCDGHMNRSTUVWXYabcdghmnrstuvwxy/TVGHCDKNYSAABWXRtvghcdknysaabwxr/;
+        return $revcomp;
+}
 
 my (%blasthit, %annot) ;
 
 foreach my $blastfile (@ARGV) {
     ( my $blastdb = $blastfile ) =~ s/.+\.(\w+)/$1/ ;
 
-    print "Parsing blast results from $blastfile, looking up hits in blastdb $blastdb\n";
+    if ($verbose) { print "Parsing blast results from $blastfile, looking up hits in blastdb $blastdb\n" }
 
     ## FOR EACH BLAST ALIGNMENT, EXTRACT ACCESSION NUMBER OF TOP (ie, FIRST) HIT, SEND TO FILE...
     open BLAST, "$blastfile";
@@ -50,22 +63,57 @@ foreach my $blastfile (@ARGV) {
 ## ... AND FINALLY ADD ANNOTATIONS TO TRINITY CONTIGS
 open FASTA, "$fastafile" ;
 open FASTA2, "> $outfile\_annotated.fasta" ;
+my $header;
+my $length;
+my $sequence;
 while (<FASTA>) {
     chomp;
     if ( m/>(.+) len=(\d+) path=.+/ ) {
-	if (exists $blasthit{$1}) { 
-	    print FASTA2 ">$1 $2bp tophit: $blasthit{$1}{accession} alength=$blasthit{$1}{length} pident=$blasthit{$1}{pident} ppos=$blasthit{$1}{ppos}";
+	# "if $header" checks to see if this is NOT the very first sequence in the file.
+	if ($header) {
+	    if (exists $blasthit{$header}) { 
+		print FASTA2 ">$header " . $length ."bp tophit: $blasthit{$header}{accession} alength=$blasthit{$header}{length} pident=$blasthit{$header}{pident} ppos=$blasthit{$header}{ppos}";
 
-	    if (exists $annot{$blasthit{$1}{accession}} ) {
-		print FASTA2 " $annot{$blasthit{$1}{accession}}" ;
+		if (exists $annot{$blasthit{$header}{accession}} ) { 
+		    print FASTA2 " $annot{$blasthit{$header}{accession}}" ;
+		}
+
+		if (! $blasthit{$header}{plus} ) {
+		    print FASTA2 " RC";
+		    $sequence = rev_complement_IUPAC $sequence;
+		}
+		print FASTA2 "\n$sequence\n" ;
 	    }
-	    if (! $blasthit{$1}{plus} ) { print FASTA2 " RC" }
-	    print FASTA2 "\n";
+	    else { print FASTA2 ">$header ".$length."bp no blast hits\n$sequence\n" }
+	    $header = '';
+	    $length = '';
+	    $sequence = '';
 	}
-	else { print FASTA2 ">$1 $2bp no blast hits\n" }
+	else {
+	    $header = $1;
+	    $length = $2;
+	}
     }
-    else { print FASTA2 "$_\n" }
+    else {
+	$sequence .= $_ ;
+    }
 }
+
+if (exists $blasthit{$header}) { 
+    print FASTA2 ">$header ".$length."bp tophit: $blasthit{$header}{accession} alength=$blasthit{$header}{length} pident=$blasthit{$header}{pident} ppos=$blasthit{$header}{ppos}";
+    
+    if (exists $annot{$blasthit{$header}{accession}} ) { 
+	print FASTA2 " $annot{$blasthit{$header}{accession}}" ;
+    }
+    
+    if (! $blasthit{$header}{plus} ) { 
+	$sequence = rev_complement_IUPAC $sequence;
+    }
+    print FASTA2 "\n$sequence\n" ;
+}
+else { print FASTA2 ">$header ".$length."bp no blast hits\n$sequence\n" }
+
+
 close FASTA;
 close FASTA2;
 

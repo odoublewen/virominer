@@ -10,7 +10,6 @@ use POSIX qw(strftime);
 
 
 my ( @s1, @q1, @s2, @q2, $file1, $file2, $basename, @basenames, $paired, $CMD, $counter,$rounded, $REDO, $outfile, @METAS, @FILTERS, $ADAPTERS, @BLAST) ;
-my %filterhash;
 my $OUTDIR = "virominer_out";
 my $THREADS = 24 ;
 my $BIN_PATH = dirname(__FILE__);
@@ -61,8 +60,8 @@ print TIME "$call\n";
 
 $counter = 0;
 for $file1 ( @ARGV ) {
-    my ( %metahits, %counts );
-    %filterhash = ();
+
+    my (%metahits, %filterhash, %counts) ;
     $counter ++ ;
     $TimeSampleStart = new Benchmark;
     
@@ -78,6 +77,8 @@ for $file1 ( @ARGV ) {
     if ($paired) {$basename =~ s/(.*\/)*(.*?)_1.fq(\.gz)*/$2/ }
     else         {$basename =~ s/(.*\/)*(.*?).fq(\.gz)*/$2/ }
     push @basenames, $basename;
+
+    open COUNTS, ">$OUTDIR/$basename\_counts.txt";
     
     #### SEQUENCE CLEANUP AND FORMATTING
     print " STAGE 1: Sequence QC and formatting\n";
@@ -116,7 +117,8 @@ for $file1 ( @ARGV ) {
 
     $TimeStageEnd = new Benchmark;
     print TIME "Sample $basename\tInitialSeqs $counts{initial}\tStage 1 (INPUT)\t", strftime("%a, %d %b %Y %H:%M:%S %z", localtime(time())), "\n";
-    print TIME "Sample $basename\tRejectedSeqs ", scalar keys %filterhash, "\tStage 1 (CUTADAPT)\t", timestr(timediff($TimeStageEnd, $TimeStageStart), 'all'), "\n";
+    print TIME "Sample $basename\tRejectedSeqs ", scalar keys %filterhash, "\tStage 1 (PREPROCESSING)\t", timestr(timediff($TimeStageEnd, $TimeStageStart), 'all'), "\n";
+    print COUNTS "initial\t$counts{initial}\n" ;
 
     #### FILTERING
     if (scalar @FILTERS == 0) { print " STAGE 2: Skipping host filter -- all reads will be passed to metagenomics filters\n" }
@@ -129,7 +131,7 @@ for $file1 ( @ARGV ) {
 	    if ($REDO and -s "$outfile") { print "  Skipping bowtie2 filter because file $outfile exists\n"}
 	    else {
 		open OUT, $CMD ;
-		foreach my $header (keys %ngs) { 
+		foreach $header (keys %ngs) { 
 		    unless (exists $filterhash{$header}) { print OUT "$header\t$ngs{$header}\n"; } 
 		}
 		close OUT ;
@@ -145,6 +147,7 @@ for $file1 ( @ARGV ) {
 	    close HITS;
 	    $rounded = sprintf "%.2f", (100*($counts{$index}/$counts{initial}));
 	    print " There were $counts{$index} hits to $index.  $counts{$index}/$counts{initial} = $rounded% of initial reads.\n";
+	    print COUNTS "$index\t$counts{$index}\n"
 	}
 	$TimeStageEnd = new Benchmark;
 	print TIME "Sample $basename\tFilteredSeqs ", scalar keys %filterhash, "\tStage 2 (HOSTFILT)\t", timestr(timediff($TimeStageEnd, $TimeStageStart), 'all'), "\n";
@@ -193,7 +196,7 @@ for $file1 ( @ARGV ) {
 	    }
 	    $rounded = sprintf "%.2f", (100*($counts{$index}/$counts{initial}));
 	    print " There were $counts{$index} hits to $index.  $counts{$index}/$counts{initial} = $rounded% of initial reads.\n";
-	    
+	    print COUNTS "$index\t$counts{$index}\n"
 	}
     
 	## (THE SORT IS NECESSARY FOR KRONA)
@@ -204,8 +207,6 @@ for $file1 ( @ARGV ) {
 	$TimeStageEnd = new Benchmark;
 	print TIME "Sample $basename\tFilteredSeqs ", scalar keys %filterhash, "\tStage 3 (METAFILT)\t", timestr(timediff($TimeStageEnd, $TimeStageStart), 'all'), "\n";
 	
-	open COUNTS, ">$OUTDIR/$basename\_counts.txt";
-	foreach (keys %counts) { print COUNTS "$_\t$counts{$_}\n"}
 	close COUNTS;
     }
 
@@ -213,9 +214,7 @@ for $file1 ( @ARGV ) {
     print " STAGE 4: Trinity Assembly\n";
     $TimeStageStart = new Benchmark;
 
-
-#    $counts{trinity} = seqs2fasta(">$OUTDIR/$basename\_trinityIN.fa");
-
+    $counts{trinity} = 0 ;
     open OUT, ">$OUTDIR/$basename\_trinityIN.fa" ;
     foreach my $header (keys %ngs) { 
 	unless (exists $filterhash{$header}) {
@@ -223,6 +222,7 @@ for $file1 ( @ARGV ) {
 	    my $numseqs = (scalar @seqs) / 2 ;
 	    for (0.. ($numseqs - 1)) {
 		printf OUT ">$header\\%d\n$seqs[$_*2]\n" , $_ + 1;
+		$counts{trinity} ++ ;
 	    } 
 	}
     }
@@ -271,7 +271,7 @@ for $file1 ( @ARGV ) {
     print "  CMD: $CMD\n";
     system $CMD;
 
-    $CMD = "cat $OUTDIR/$basename\_darkmatter_blast[nx].txt > $OUTDIR/$basename\_darkmatter_blast.txt";
+    $CMD = "cat $OUTDIR/$basename\_darkmatter_blast[nx].* > $OUTDIR/$basename\_darkmatter_blast.txt";
     print "  CMD: $CMD\n";
     system $CMD;
 
