@@ -85,14 +85,10 @@ while (<FASTA>) {
 		print FASTA2 "\n$sequence\n" ;
 	    }
 	    else { print FASTA2 ">$header ".$length."bp no blast hits\n$sequence\n" }
-	    $header = '';
-	    $length = '';
 	    $sequence = '';
 	}
-	else {
-	    $header = $1;
-	    $length = $2;
-	}
+	$header = $1;
+	$length = $2;
     }
     else {
 	$sequence .= $_ ;
