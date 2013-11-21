@@ -267,7 +267,7 @@ for $file1 ( @ARGV ) {
     print "  CMD: $CMD\n";
     system $CMD;
 
-    $CMD = "fastaLengths.pl $OUTDIR/$basename\_Trinity_annotated.fasta > $OUTDIR/$basename\_Trinity_lengths.txt";
+    $CMD = "fastaLengths.pl $OUTDIR/$basename\_annotated.fasta > $OUTDIR/$basename\_Trinity_lengths.txt";
     print "  CMD: $CMD\n";
     system $CMD;
 
@@ -298,7 +298,7 @@ unless (scalar @METAS == 0) {
 print "BUILDING KRONA SUMMARY OF BLAST HITS\n";
 @metabasenames = map { "$OUTDIR/$_\_darkmatter_blast.txt:$OUTDIR/$_\_Trinity_lengths.txt"} @basenames ;
 $metabasenamestring = join ' ', @metabasenames ;
-my @urls = map { "$CWD/$OUTDIR/$_\_Trinity_annotated.fasta"} @basenames ;
+my @urls = map { "$CWD/$OUTDIR/$_\_annotated.fasta"} @basenames ;
 my $urlstring = "/cgi-bin/kronaQuery.pl?data=" . join ',', @urls ;
 $CMD = "ktImportBLAST -o $OUTDIR\_krona_darkmatterblast.html -x 75 -y 256 -qp $urlstring $metabasenamestring";
 print "CMD: $CMD\n";
