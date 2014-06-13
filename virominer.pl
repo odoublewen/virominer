@@ -14,10 +14,10 @@ my $OUTDIR = "virominer_out";
 my $THREADS = 24 ;
 my $BIN_PATH = dirname(__FILE__);
 my $CWD = getcwd;
-my $INDEX_PATH = "/home/owen/indices/" ;
-my $BLAST_PATH = "" ;
-my $filters = 'culex_genbank20121129,silva111_rrna' ;
-my $metas = 'refseq_Eupath,refseq_Firmicutes,refseq_Fungi,refseq_OtherProks,refseq_ProteobacteriaABGP,refseq_viruses20130220' ;
+my $INDEX_PATH = "/raid/solberg/index/" ;
+my $BLAST_PATH = "" ;  #FIXME - can't do it like this
+my $filters = 'silva115' ;
+my $metas = 'refseq2014-03-03,viral_2014-03-03' ;
 my $metatrinity ;
 my $blast = 'blastn,blastx';
 my $BLASTNDB = 'nt';
@@ -53,7 +53,7 @@ if (not -d $OUTDIR) { mkdir $OUTDIR }
 elsif (not $REDO)   { die "$OUTDIR exists.  Specify --redo to reuse previous output and regenerate reports, or choose a different output name with the --out option\n"}
 
 foreach (@BLAST) { if ( $_ ne "blastn" and $_ ne "blastx" ) {die "blast option $_ is not blastn or blastx\n"}}
-foreach ((@FILTERS, @METAS)) { if ( ! -s "$INDEX_PATH$_.1.bt2" ) { die "Cannot find bowtie2 index files at $INDEX_PATH$_.1.bt2\n" } }
+foreach ((@FILTERS, @METAS)) { unless ( -s "$INDEX_PATH$_.1.bt2" or -s "$INDEX_PATH$_.1.bt2l" ) { die "Cannot find bowtie2 index files at $INDEX_PATH$_.1.bt2\n" } }
 
 open TIME, "> $OUTDIR\_timing.txt";
 print TIME "$call\n";
@@ -221,7 +221,7 @@ for $file1 ( @ARGV ) {
 	    my @seqs = split "\t", $ngs{$header} ;
 	    my $numseqs = (scalar @seqs) / 2 ;
 	    for (0.. ($numseqs - 1)) {
-		printf OUT ">$header\\%d\n$seqs[$_*2]\n" , $_ + 1;
+		printf OUT ">$header/%d\n$seqs[$_*2]\n" , $_ + 1;
 		$counts{trinity} ++ ;
 	    } 
 	}
@@ -229,7 +229,7 @@ for $file1 ( @ARGV ) {
     close OUT ;
 
     my $trinity_outfile = "$OUTDIR/$basename\_trinity.Trinity.fasta";
-    $CMD = "Trinity.pl --output $OUTDIR/$basename\_trinity --full_cleanup --min_contig_length 500 --seqType fa --JM 50G --single $OUTDIR/$basename\_trinityIN.fa --CPU $THREADS --inchworm_cpu $THREADS --bflyCalculateCPU";  ## --SS_lib_type RF
+    $CMD = "Trinity --output $OUTDIR/$basename\_trinity --full_cleanup --min_contig_length 1000 --seqType fa --JM 100G --single $OUTDIR/$basename\_trinityIN.fa --CPU $THREADS --inchworm_cpu $THREADS --bflyCalculateCPU";  ## --SS_lib_type RF
     if ($paired) { $CMD .= " --run_as_paired" }
     print "  CMD: $CMD\n";
     if ($REDO and -s "$trinity_outfile") { print "  Skipping Trinity assembly because file $trinity_outfile exists\n"}
@@ -248,15 +248,19 @@ for $file1 ( @ARGV ) {
 	else                            { $blastdb = $BLAST_PATH . $BLASTXDB; $blastOptions = "-evalue 10" }
 	my $seqEmitter;
 	if ($blastcounter == 1) { $seqEmitter = "cat" }
-	else                    { $seqEmitter = "$BIN_PATH/fastaFilter.pl" }
+	else                    { $seqEmitter = "$BIN_PATH/fastaFilter.pl $blastoutfiles[-1]" }
 
 	$outfile = "$OUTDIR/$basename\_darkmatter_$blaststage.$blastdb";
 	push @blastoutfiles, $outfile ;
 
-	$CMD = "$seqEmitter $OUTDIR/$basename\_trinity.Trinity.fasta | parallel --block 2k --recstart '>' --pipe -j $THREADS \"$blaststage -db $blastdb $blastOptions -outfmt '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore ppos' -max_target_seqs 5 -query -\" > $outfile";
+	$CMD = "$seqEmitter $OUTDIR/$basename\_trinity.Trinity.fasta | parallel --block 10k --recstart '>' --pipe -j $THREADS \"$blaststage -db $blastdb $blastOptions -outfmt '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore ppos' -max_target_seqs 5 -query -\" > $outfile";
 	print "  CMD: $CMD\n";
 	if ($REDO and -s "$outfile") { print "  Skipping BLAST search because file $outfile exists\n"}
 	else { system $CMD } 
+	
+	$TimeStageEnd = new Benchmark;
+	print TIME "Sample $basename\tBlastSeqs\tStage 5 ($blaststage)\t", timestr(timediff($TimeStageEnd, $TimeStageStart), 'all'), "\n";
+	$blastcounter += 1;
 
     }
 
@@ -267,7 +271,7 @@ for $file1 ( @ARGV ) {
     print "  CMD: $CMD\n";
     system $CMD;
 
-    $CMD = "fastaLengths.pl $OUTDIR/$basename\_annotated.fasta > $OUTDIR/$basename\_Trinity_lengths.txt";
+    $CMD = "$BIN_PATH/fastaLengths.pl $OUTDIR/$basename\_annotated.fasta > $OUTDIR/$basename\_Trinity_lengths.txt";
     print "  CMD: $CMD\n";
     system $CMD;
 
